@@ -12,10 +12,10 @@ jobs:
         run: |
           # Enable Remote Desktop
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
-          # Disable NLA
+          # Disable NLA (Network Level Authentication)
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "SecurityLayer" -Value 0 -Force
-          # Firewall rule
+          # Firewall rule allowing port 3389
           netsh advfirewall firewall add rule name="RDP" dir=in action=allow protocol=TCP localport=3389
           Restart-Service -Name TermService -Force
 
@@ -40,8 +40,15 @@ jobs:
       - name: Start Pinggy Tunnel
         shell: bash
         run: |
-          ssh -p 443 -R0:127.0.0.1:3389 qr+tcp@free.pinggy.io | tee pinggy.log &
+          # CRITICAL: We use 3389 here, NOT 8000.
+          # Even though your dashboard says 8000, RDP lives on 3389.
+          # If you use 8000, the tunnel works but RDP connection will fail.
+          ssh -p 443 -R0:127.0.0.1:3389 -o StrictHostKeyChecking=no -o ServerAliveInterval=30 PqsVfbGha7R+tcp@ap.free.pinggy.io | tee pinggy.log &
+          
+          # Wait 20 seconds for the connection to establish
           sleep 20
+          
+          # Extract the public address from the log
           addr=$(grep -oE 'tcp://[a-zA-Z0-9.-]+:[0-9]+' pinggy.log | head -n1)
           echo "PINGGY_ADDR=$addr" >> $GITHUB_ENV
           echo "Pinggy TCP Address: $addr"
@@ -49,11 +56,11 @@ jobs:
       - name: Show Connection Info
         shell: bash
         run: |
-          echo "=== RDP CONNECTION ==="
+          echo "=== RDP CONNECTION INFO ==="
           echo "Username: RDP"
           echo "Password: $RDP_PASSWORD"
-          echo "Pinggy Address: $PINGGY_ADDR"
-          echo "======================"
+          echo "Address: $PINGGY_ADDR"
+          echo "==========================="
 
       - name: Keep Alive
         shell: bash
