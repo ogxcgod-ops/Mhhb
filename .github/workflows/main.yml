@@ -37,31 +37,40 @@ jobs:
         shell: powershell
         run: choco install openssh -y
 
-      - name: Start Pinggy Tunnel
+      - name: Start Pinggy Tunnel (Loop Mode)
         shell: bash
         run: |
-          # CRITICAL: We use 3389 here, NOT 8000.
-          # Even though your dashboard says 8000, RDP lives on 3389.
-          # If you use 8000, the tunnel works but RDP connection will fail.
-          ssh -p 443 -R0:127.0.0.1:3389 -o StrictHostKeyChecking=no -o ServerAliveInterval=30 PqsVfbGha7R+tcp@ap.free.pinggy.io | tee pinggy.log &
-          
-          # Wait 20 seconds for the connection to establish
-          sleep 20
-          
-          # Extract the public address from the log
-          addr=$(grep -oE 'tcp://[a-zA-Z0-9.-]+:[0-9]+' pinggy.log | head -n1)
-          echo "PINGGY_ADDR=$addr" >> $GITHUB_ENV
-          echo "Pinggy TCP Address: $addr"
+          # Define the function to start and monitor the tunnel
+          start_tunnel() {
+            echo "--------------------------------------------------"
+            echo "Starting New Pinggy Tunnel..."
+            echo "--------------------------------------------------"
+            
+            # Start SSH in background, piping output to log file. Using 3389 for RDP.
+            ssh -p 443 -R0:127.0.0.1:3389 -o StrictHostKeyChecking=no -o ServerAliveInterval=30 PqsVfbGha7R+tcp@ap.free.pinggy.io | tee pinggy.log &
+            TUNNEL_PID=$!
+            
+            # Wait 10 seconds for the URL to appear
+            sleep 10
+            
+            # Grab and show the new address (the new tunnel address)
+            addr=$(grep -oE 'tcp://[a-zA-Z0-9.-]+:[0-9]+' pinggy.log | tail -n1)
+            
+            echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+            echo "RDP USERNAME: RDP"
+            echo "RDP PASSWORD: $RDP_PASSWORD"
+            echo "NEW RDP ADDRESS: $addr"
+            echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+            
+            # Wait for the tunnel process to terminate (which it does after ~60 mins)
+            wait $TUNNEL_PID
+          }
 
-      - name: Show Connection Info
-        shell: bash
-        run: |
-          echo "=== RDP CONNECTION INFO ==="
-          echo "Username: RDP"
-          echo "Password: $RDP_PASSWORD"
-          echo "Address: $PINGGY_ADDR"
-          echo "==========================="
-
-      - name: Keep Alive
-        shell: bash
-        run: sleep 6h
+          # Loop endlessly until the 6-hour GitHub Action job limit is reached
+          while true; do
+            start_tunnel
+            echo "Tunnel disconnected (Pinggy limit reached). Restarting in 5 seconds..."
+            sleep 5
+            # Clear the log for the next run
+            echo "" > pinggy.log
+          done
